@@ -1,40 +1,7 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from PIL import Image, ImageTk
 import json
-
-class PromptDialog(tk.Toplevel):
-    """
-    Универсальный диалог для ввода текста.
-    Аналог JS prompt().
-    """
-
-    def __init__(self, master, title, message):
-        super().__init__(master)
-        self.title(title)
-        self.result = None
-
-        # Делаем окно модальным
-        self.grab_set()
-
-        # Текст вопроса
-        ttk.Label(self, text=message).pack(padx=10, pady=10)
-
-        # Поле ввода
-        self.entry = ttk.Entry(self)
-        self.entry.pack(padx=10, pady=10)
-        self.entry.focus()
-
-        # Кнопка OK
-        ttk.Button(self, text="OK", command=self.on_ok).pack(pady=10)
-
-        # Закрытие по Enter
-        self.bind("<Return>", lambda e: self.on_ok())
-
-    def on_ok(self):
-        self.result = self.entry.get()
-        self.destroy()
-
 
 class GridAnnotator:
 
@@ -159,13 +126,9 @@ class GridAnnotator:
 
             print(f"Размер клетки: {cell_size} × {cell_size}")
 
-            dlg = PromptDialog(self.control_window, "Диапазон букв", "Введите диапазон букв (например A-H):")
-            self.master.wait_window(dlg)
-            letters_range = dlg.result
+            letters_range = simpledialog.askstring("Диапазон букв", "Введите диапазон букв (например A-H):")
 
-            dlg = PromptDialog(self.control_window, "Диапазон цифр", "Введите диапазон цифр (например 1-20):")
-            self.master.wait_window(dlg)
-            numbers_range = dlg.result
+            numbers_range = simpledialog.askinteger("Диапазон цифр", "Введите количество строк (например 20):")
 
             start_letter, end_letter = letters_range.split("-")
             letters_raw = [chr(i) for i in range(ord(start_letter), ord(end_letter) + 1)]
@@ -173,7 +136,8 @@ class GridAnnotator:
             # Исключаем буквы Ё и Й
             self.letters = [L for L in letters_raw if L not in ("Ё", "Й")]
 
-            start_num, end_num = numbers_range.split("-")
+            start_num = 1
+            end_num = numbers_range
             self.numbers = list(range(int(start_num), int(end_num) + 1))
 
             self.draw_grid()
@@ -195,9 +159,8 @@ class GridAnnotator:
                         print(f"Вы выбрали квадрат: {square_name}")
 
                         
-                        dlg = PromptDialog(self.control_window, "Слой", "Введите слой: ")
-                        self.master.wait_window(dlg)
-                        layer = dlg.result
+                        dlg = simpledialog.askstring("Слой", "Введите слой: ")
+                        layer = dlg
 
                         allowed = messagebox.askyesno(
                             "Использование квадрата",
