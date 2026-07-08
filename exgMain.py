@@ -1,8 +1,39 @@
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 import json
 
+class PromptDialog(tk.Toplevel):
+    """
+    Универсальный диалог для ввода текста.
+    Аналог JS prompt().
+    """
+
+    def __init__(self, master, title, message):
+        super().__init__(master)
+        self.title(title)
+        self.result = None
+
+        # Делаем окно модальным
+        self.grab_set()
+
+        # Текст вопроса
+        ttk.Label(self, text=message).pack(padx=10, pady=10)
+
+        # Поле ввода
+        self.entry = ttk.Entry(self)
+        self.entry.pack(padx=10, pady=10)
+        self.entry.focus()
+
+        # Кнопка OK
+        ttk.Button(self, text="OK", command=self.on_ok).pack(pady=10)
+
+        # Закрытие по Enter
+        self.bind("<Return>", lambda e: self.on_ok())
+
+    def on_ok(self):
+        self.result = self.entry.get()
+        self.destroy()
 
 
 class GridAnnotator:
@@ -45,10 +76,10 @@ class GridAnnotator:
         self.master.bind("<Configure>", self.on_resize)
 
         # Кнопки — теперь в отдельном окне
-        tk.Button(self.control_window, text="Загрузить изображение", command=self.load_image).pack(fill=tk.X)
-        tk.Button(self.control_window, text="Начать калибровку сетки", command=self.start_calibration).pack(fill=tk.X)
-        tk.Button(self.control_window, text="Сбросить сетку", command=self.reset_grid).pack(fill=tk.X)
-        tk.Button(self.control_window, text="Сохранить JSON", command=self.save_json).pack(fill=tk.X)
+        ttk.Button(self.control_window, text="Загрузить изображение", command=self.load_image).pack(fill=tk.X)
+        ttk.Button(self.control_window, text="Начать калибровку сетки", command=self.start_calibration).pack(fill=tk.X)
+        ttk.Button(self.control_window, text="Сбросить сетку", command=self.reset_grid).pack(fill=tk.X)
+        ttk.Button(self.control_window, text="Сохранить JSON", command=self.save_json).pack(fill=tk.X)
 
 
     # ------------------------------------------------------------
@@ -128,8 +159,13 @@ class GridAnnotator:
 
             print(f"Размер клетки: {cell_size} × {cell_size}")
 
-            letters_range = input("Введите диапазон букв (например A-H): ")
-            numbers_range = input("Введите диапазон цифр (например 1-20): ")
+            dlg = PromptDialog(self.control_window, "Диапазон букв", "Введите диапазон букв (например A-H):")
+            self.master.wait_window(dlg)
+            letters_range = dlg.result
+
+            dlg = PromptDialog(self.control_window, "Диапазон цифр", "Введите диапазон цифр (например 1-20):")
+            self.master.wait_window(dlg)
+            numbers_range = dlg.result
 
             start_letter, end_letter = letters_range.split("-")
             letters_raw = [chr(i) for i in range(ord(start_letter), ord(end_letter) + 1)]
@@ -158,8 +194,15 @@ class GridAnnotator:
                         square_name = f"{letter}{number}"
                         print(f"Вы выбрали квадрат: {square_name}")
 
-                        layer = input("Введите слой: ")
-                        allowed = input("Можно использовать? (yes/no): ").lower() == "yes"
+                        
+                        dlg = PromptDialog(self.control_window, "Слой", "Введите слой: ")
+                        self.master.wait_window(dlg)
+                        layer = dlg.result
+
+                        allowed = messagebox.askyesno(
+                            "Использование квадрата",
+                            f"Можно использовать квадрат {square_name}?"
+                        )
 
                         self.grid_data[square_name] = {
                             "layer": layer,
