@@ -8,6 +8,17 @@ class GridAnnotator:
     def __init__(self, master):
         self.master = master
         self.master.title("Оцифровка чертежа — Canvas")
+        
+        self.handle1 = None
+        self.handle2 = None
+        self.handle_size = 10
+
+        self.dragging_handle = None
+
+        self.cell_w = None
+        self.cell_h = None
+        self.grid_left = None
+        self.grid_top = None
 
         # Разрешаем менять размер окна
         self.master.resizable(True, True)
@@ -47,6 +58,84 @@ class GridAnnotator:
         ttk.Button(self.control_window, text="Начать калибровку сетки", command=self.start_calibration).pack(fill=tk.X)
         ttk.Button(self.control_window, text="Сбросить сетку", command=self.reset_grid).pack(fill=tk.X)
         ttk.Button(self.control_window, text="Сохранить JSON", command=self.save_json).pack(fill=tk.X)
+
+    def create_handles(self):
+        # Примерное стартовое положение (центр экрана)
+        cx = self.canvas.winfo_width() // 2
+        cy = self.canvas.winfo_height() // 2
+
+        # Верхний левый угол
+        self.handle1 = self.canvas.create_rectangle(
+            cx - 50, cy - 50,
+            cx - 50 + self.handle_size, cy - 50 + self.handle_size,
+            fill="yellow", outline="black", tags="handle"
+        )
+
+        # Нижний правый угол
+        self.handle2 = self.canvas.create_rectangle(
+            cx + 50, cy + 50,
+            cx + 50 + self.handle_size, cy + 50 + self.handle_size,
+            fill="yellow", outline="black", tags="handle"
+        )
+        
+        self.canvas.tag_bind("handle", "<ButtonPress-1>", self.on_handle_press)
+        self.canvas.tag_bind("handle", "<B1-Motion>", self.on_handle_drag)
+        self.canvas.tag_bind("handle", "<ButtonRelease-1>", self.on_handle_release)
+
+    def on_handle_press(self, event):
+        # Определяем какой хендлер схвачен
+        item = self.canvas.find_closest(event.x, event.y)[0]
+        if item in (self.handle1, self.handle2):
+            self.dragging_handle = item
+
+    def on_handle_drag(self, event):
+        if not self.dragging_handle:
+            return
+
+        # Перемещаем хендлер
+        x = event.x
+        y = event.y
+        self.canvas.coords(
+            self.dragging_handle,
+            x, y,
+            x + self.handle_size, y + self.handle_size
+        )
+
+        # Перестраиваем сетку в реальном времени
+        self.update_grid_preview()
+
+    def on_handle_release(self, event):
+        self.dragging_handle = None
+        
+    def update_grid_preview(self):
+        # Получаем координаты хендлеров
+        x1, y1, _, _ = self.canvas.coords(self.handle1)
+        x2, y2, _, _ = self.canvas.coords(self.handle2)
+
+        # Вычисляем размеры клетки
+        self.cell_w = abs(x2 - x1)
+        self.cell_h = abs(y2 - y1)
+
+        # Верхний левый угол сетки
+        self.grid_left = min(x1, x2)
+        self.grid_top = min(y1, y2)
+
+        # Удаляем старую сетку
+        self.canvas.delete("grid")
+
+        # Строим новую сетку
+        for i, letter in enumerate(self.letters):
+            for j, number in enumerate(self.numbers):
+                cx1 = self.grid_left + i * self.cell_w
+                cy1 = self.grid_top + j * self.cell_h
+                cx2 = cx1 + self.cell_w
+                cy2 = cy1 + self.cell_h
+
+                self.canvas.create_rectangle(
+                    cx1, cy1, cx2, cy2,
+                    outline="red", width=1, tags="grid"
+                )
+
 
 
     # ------------------------------------------------------------
@@ -97,8 +186,20 @@ class GridAnnotator:
     # Калибровка сетки
     # ------------------------------------------------------------
     def start_calibration(self):
-        print("Кликните ЛЕВЫЙ ВЕРХНИЙ угол сетки.")
-        self.click_stage = 1
+        letters_range = simpledialog.askstring("Диапазон букв", "Введите диапазон букв (например A-H):")
+        numbers_range = simpledialog.askinteger("Диапазон цифр", "Введите количество строк (например 20):")
+
+        start_letter, end_letter = letters_range.split("-")
+        letters_raw = [chr(i) for i in range(ord(start_letter), ord(end_letter) + 1)]
+
+        # Исключаем буквы Ё и Й
+        self.letters = [L for L in letters_raw if L not in ("Ё", "Й")]
+
+        start_num = 1
+        end_num = numbers_range
+        self.numbers = list(range(int(start_num), int(end_num) + 1))
+        
+        self.create_handles()
 
     # ------------------------------------------------------------
     # Обработка кликов
@@ -108,40 +209,11 @@ class GridAnnotator:
         orig_y = int(event.y / self.scale)
 
         if self.click_stage == 1:
-            self.grid_left = orig_x
-            self.grid_top = orig_y
-            print("Теперь кликните ПРИМЕРНО правый нижний угол квадрата A1.")
-            self.click_stage = 2
+
             return
 
         if self.click_stage == 2:
-            dx = orig_x - self.grid_left
-            dy = orig_y - self.grid_top
 
-            d = (dx**2 + dy**2)**0.5
-            cell_size = round(d / (2**0.5))
-
-            self.cell_width = cell_size
-            self.cell_height = cell_size
-
-            print(f"Размер клетки: {cell_size} × {cell_size}")
-
-            letters_range = simpledialog.askstring("Диапазон букв", "Введите диапазон букв (например A-H):")
-
-            numbers_range = simpledialog.askinteger("Диапазон цифр", "Введите количество строк (например 20):")
-
-            start_letter, end_letter = letters_range.split("-")
-            letters_raw = [chr(i) for i in range(ord(start_letter), ord(end_letter) + 1)]
-
-            # Исключаем буквы Ё и Й
-            self.letters = [L for L in letters_raw if L not in ("Ё", "Й")]
-
-            start_num = 1
-            end_num = numbers_range
-            self.numbers = list(range(int(start_num), int(end_num) + 1))
-
-            self.draw_grid()
-            self.click_stage = 0
             return
 
         if self.click_stage == 0 and self.cell_width:
@@ -242,7 +314,7 @@ class GridAnnotator:
 # ------------------------------------------------------------
 # Запуск
 # ------------------------------------------------------------
-if __name__ == "__main__":
+if __name__ == "__main__":  
     root = tk.Tk()
     app = GridAnnotator(root)
     root.mainloop()
