@@ -23,7 +23,6 @@ class GridAnnotator:
         # Разрешаем менять размер окна
         self.master.resizable(True, True)
 
-    
         # Оригинальное изображение
         self.image = None
         self.photo = None
@@ -41,13 +40,34 @@ class GridAnnotator:
         self.letters = ["A"]
         self.numbers = ["1"]
         self.grid_data = {}
+        
+        self.deleted = []
 
         self.click_stage = 0
         
         # Создаём панель управления
         toolbar = ttk.Frame(self.master)        
-        ttk.Button(toolbar, text="Загрузить изображение", command=self.load_image).pack(side=tk.LEFT, padx=2)
-        ttk.Button(toolbar, text="Задать размер сетки", command=self.start_calibration).pack(side=tk.LEFT, padx=2)              
+        ttk.Button(toolbar, text="Загрузить чертеж", command=self.load_image).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Задать размер сетки", command=self.start_calibration).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        ttk.Label(toolbar, text="Выберите слой:").pack(side=tk.LEFT, padx=2)
+        self.grid_size_combo = ttk.Combobox(toolbar, values=[
+            "Балласт",
+            "СКС + БПК",
+            "СПП + СС",
+            "СТСС + БКУ и КЖ",
+            "УМП"
+        ])
+        self.grid_size_combo.pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        ttk.Label(toolbar, text="Сектор:").pack(side=tk.LEFT, padx=2)
+        ttk.Spinbox(toolbar, from_=1, to=7, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        ttk.Label(toolbar, text="Пласт:").pack(side=tk.LEFT, padx=2)
+        ttk.Spinbox(toolbar, from_=1, to=12, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(self.master, orient=tk.HORIZONTAL).pack(side=tk.TOP, fill=tk.X)
+        ttk.Button(toolbar, text="В JSON", command=self.save_json).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(toolbar, text="В БД", command=self.save_db).pack(side=tk.RIGHT, padx=2)
         toolbar.pack(side=tk.TOP, fill=tk.X)
               
         # Canvas для чертежа
@@ -162,16 +182,20 @@ class GridAnnotator:
                 cx2 = cx1 + self.cell_w
                 cy2 = cy1 + self.cell_h
 
-                # allowed stipple: 12,25,50,75
-                self.canvas.create_rectangle(
-                    cx1, cy1, cx2, cy2,
-                    outline="red", width=1,
-                    fill="red", stipple="gray12",
-                    tags=("grid",f"{letter}{number}")
-                )
-                self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
-                                        text=f"{letter}{number}", fill="blue", 
-                                        tags=("grid",f"{letter}{number}"))
+                qIndex = f"{letter}{number}"
+                
+                if qIndex not in self.deleted:
+                    # allowed stipple: 12,25,50,75
+                    self.canvas.create_rectangle(
+                        cx1, cy1, cx2, cy2,
+                        outline="red", width=1, 
+                        fill="red", stipple="gray12",
+                        tags=("grid", qIndex)
+                    )
+                    self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
+                        text=f"{letter}{number}", fill="blue", 
+                        tags=("grid", qIndex)
+                    )
                 
         self.rise_handeler_to_top()
                 
@@ -280,10 +304,12 @@ class GridAnnotator:
         if current:
             tags = self.canvas.gettags(current[0])
             square_name = tags[1]
+            # Event num: 1 - left click, 2 - middle click, 3 - right click
             if event.num == 1:
                 print(f"Вы выбрали квадрат: {square_name}")
             if event.num == 3:
                 self.canvas.delete(square_name)
+                self.deleted.append(square_name)
             
             
 
@@ -317,6 +343,10 @@ class GridAnnotator:
             json.dump(self.grid_data, f, ensure_ascii=False, indent=4)
 
         print("JSON сохранён:", file_path)
+    
+    def save_db(self):
+        # Placeholder for database saving logic
+        messagebox.showinfo("Сохранение в БД", "Функция сохранения в базу данных пока не реализована.")
     
 
 # ------------------------------------------------------------
