@@ -1,11 +1,23 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from PIL import Image, ImageTk
-import json
+import json, sqlite3, os
 
 class GridAnnotator:
 
     def __init__(self, master):
+
+        conn = sqlite3.connect('grid_data.db')
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS grid_data (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            sector INTEGER,
+                            layer TEXT,
+                            square TEXT,
+                            soil_type TEXT
+                        )''')
+        conn.commit()
+
         self.master = master
         self.master.title("Оцифровка чертежа — Canvas")
         
@@ -51,23 +63,25 @@ class GridAnnotator:
         ttk.Button(toolbar, text="Задать размер сетки", command=self.start_calibration).pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
         ttk.Label(toolbar, text="Выберите слой:").pack(side=tk.LEFT, padx=2)
-        self.grid_size_combo = ttk.Combobox(toolbar, values=[
+        self.soil_combo = ttk.Combobox(toolbar, values=[
             "Балласт",
             "СКС + БПК",
             "СПП + СС",
             "СТСС + БКУ и КЖ",
             "УМП"
         ])
-        self.grid_size_combo.pack(side=tk.LEFT, padx=2)
+        self.soil_combo.pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
         ttk.Label(toolbar, text="Сектор:").pack(side=tk.LEFT, padx=2)
-        ttk.Spinbox(toolbar, from_=1, to=7, width=5).pack(side=tk.LEFT, padx=2)
+        self.sector_spinbox = ttk.Spinbox(toolbar, from_=1, to=7, width=5)
+        self.sector_spinbox.pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
         ttk.Label(toolbar, text="Пласт:").pack(side=tk.LEFT, padx=2)
-        ttk.Spinbox(toolbar, from_=1, to=12, width=5).pack(side=tk.LEFT, padx=2)
+        self.layer_spinbox = ttk.Spinbox(toolbar, from_=1, to=12, width=5)
+        self.layer_spinbox.pack(side=tk.LEFT, padx=2)
         ttk.Separator(self.master, orient=tk.HORIZONTAL).pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(toolbar, text="В JSON", command=self.save_json).pack(side=tk.RIGHT, padx=2)
-        ttk.Button(toolbar, text="В БД", command=self.save_db).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(toolbar, text="Сохранить", command=self.save_db).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(toolbar, text="ПРОВЕРИТЬ ОПИСЬ", command=self.check_sys).pack(side=tk.RIGHT, padx=2)
         toolbar.pack(side=tk.TOP, fill=tk.X)
               
         # Canvas для чертежа
@@ -194,7 +208,7 @@ class GridAnnotator:
                     )
                     self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
                         text=f"{letter}{number}", fill="blue", 
-                        tags=("grid", qIndex)
+                        tags=("letter", qIndex)
                     )
                 
         self.rise_handeler_to_top()
@@ -205,6 +219,7 @@ class GridAnnotator:
     # Layer management, rise grid and handlers on top  
     def rise_handeler_to_top(self):    
         self.canvas.tag_raise("grid")
+        self.canvas.tag_raise("letter")
         self.canvas.tag_raise("handle1")
         self.canvas.tag_raise("handle2")
 
@@ -307,46 +322,70 @@ class GridAnnotator:
             # Event num: 1 - left click, 2 - middle click, 3 - right click
             if event.num == 1:
                 print(f"Вы выбрали квадрат: {square_name}")
+                soil_type = self.soil_combo.get()
+                x1, y1, _, _ = self.canvas.coords(self.handle1)
+                self.canvas.create_text(x1+5, y1 + (len(tags)-1)*13, text=soil_type, fill="black", anchor="nw", tags="info")
+                self.canvas.addtag_withtag(soil_type, square_name)
+                print(self.canvas.gettags(current[0]))
+                print(self.canvas.coords(current[0]))
             if event.num == 3:
                 self.canvas.delete(square_name)
                 self.deleted.append(square_name)
-            
-            
-
-        """"                            
-        dlg = simpledialog.askstring("Слой", "Введите слой: ")
-        layer = dlg
-
-        allowed = messagebox.askyesno(
-            "Использование квадрата",
-            f"Можно использовать квадрат {square_name}?"
-        )
-
-        self.grid_data[square_name] = {
-            "layer": layer,
-            "allowed": allowed
-        }
-        """
 
         return
 
-
-    # ------------------------------------------------------------
-    # Сохранение JSON
-    # ------------------------------------------------------------
-    def save_json(self):
-        file_path = filedialog.asksaveasfilename(defaultextension=".json")
-        if not file_path:
-            return
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(self.grid_data, f, ensure_ascii=False, indent=4)
-
-        print("JSON сохранён:", file_path)
     
     def save_db(self):
         # Placeholder for database saving logic
-        messagebox.showinfo("Сохранение в БД", "Функция сохранения в базу данных пока не реализована.")
+        messagebox.showinfo("Сохранение в БД", "Выполнено сохранение данных в базу данных.")
+        real_grid = self.canvas.find_withtag("grid")
+        print("Количество квадратов в сетке:", len(real_grid))
+        for item in real_grid:
+            tags = self.canvas.gettags(item)
+            if len(tags) > 1:
+                square_name = tags[1]
+                soil_type = ""
+                for tag in tags[2:]:
+                    if tag not in self.letters and tag not in map(str, self.numbers):
+                        soil_type += tag + " | "
+                if soil_type:
+                    sector = int(self.sector_spinbox.get())  
+                    layer = int(self.layer_spinbox.get())   
+                    conn = sqlite3.connect('grid_data.db')
+                    cursor = conn.cursor()
+                    cursor.execute('INSERT INTO grid_data (sector, layer, square, soil_type) VALUES (?, ?, ?, ?)',
+                                   (sector, layer, square_name, soil_type))
+                    conn.commit()
+                    conn.close()
+
+    def check_sys(self):
+        # Placeholder for system check logic
+
+        file_path = filedialog.askopenfilename(title="Выберите файл описи", filetypes=[("CSV files", "*.csv")])
+        if not file_path:
+            return
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            for row in lines:
+                row = row.strip()
+                if not row:
+                    continue
+                parts = row.split(',')
+                if len(parts) < 3:
+                    continue
+                sector, layer, square_name = parts[0], parts[1], parts[2]
+                square_name = square_name.replace("/", "").upper()  # Normalize square name
+                conn = sqlite3.connect('grid_data.db')
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM grid_data WHERE sector=? AND layer=? AND square=?', (sector, layer, square_name))
+                result = cursor.fetchone()
+                conn.close()
+                if not result:
+                    messagebox.showwarning("Проверка описи", f"Квадрат {square_name} в секторе {sector}, пласт {layer} не найден в базе данных.")
+                    return
+
+        messagebox.showinfo("Проверка описи", "Выполнена проверка описи.")
     
 
 # ------------------------------------------------------------
