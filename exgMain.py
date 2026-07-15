@@ -233,6 +233,11 @@ class GridAnnotator:
         file_path = filedialog.askopenfilename()
         if not file_path:
             return
+        
+        user_sector = simpledialog.askinteger("Подготовка к разметке", "Какой сектор?", initialvalue=1)
+        self.sector_spinbox.set(user_sector)
+        user_layer = simpledialog.askinteger("Подготовка к разметке", "Какой пласт?", initialvalue=1)
+        self.layer_spinbox.set(user_layer)
 
         self.image = Image.open(file_path)
         self.update_scaled_image()
@@ -369,10 +374,16 @@ class GridAnnotator:
 
     
     def save_db(self):
-        # Placeholder for database saving logic
-        messagebox.showinfo("Сохранение в БД", "Выполнено сохранение данных в базу данных.")
+
+        conn = sqlite3.connect('grid_data.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM grid_data WHERE sector=? AND layer=?', (int(self.sector_spinbox.get()), int(self.layer_spinbox.get())))
+        conn.commit()
+        cursor.close()
+
         real_grid = self.canvas.find_withtag("grid")
         print("Количество квадратов в сетке:", len(real_grid))
+
         for item in real_grid:
             tags = self.canvas.gettags(item)
             if len(tags) > 1:
@@ -384,13 +395,16 @@ class GridAnnotator:
                         soil_type += tag + "|"
                 if soil_type:
                     sector = int(self.sector_spinbox.get())  
-                    layer = int(self.layer_spinbox.get())   
-                    conn = sqlite3.connect('grid_data.db')
+                    layer = int(self.layer_spinbox.get())
+
                     cursor = conn.cursor()
                     cursor.execute('INSERT INTO grid_data (sector, layer, square, soil_type) VALUES (?, ?, ?, ?)',
                                    (sector, layer, square_name, soil_type))
                     conn.commit()
-                    conn.close()
+                    cursor.close()
+        
+        conn.close()
+        messagebox.showinfo("Сохранение в БД", "Выполнено сохранение данных в базу данных.")
 
     def check_sys(self):
         # Placeholder for system check logic
@@ -410,7 +424,12 @@ class GridAnnotator:
                 if len(parts) < 4:
                     continue
                 
-                sector, layer, square_name, soil_type = parts[0], parts[1], parts[2], parts[3]
+                sector_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Сектор'", initialvalue=1)
+                layer_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Пласт'", initialvalue=2)
+                square_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Квадрат'", initialvalue=3)
+                soil_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Слой'", initialvalue=4)
+
+                sector, layer, square_name, soil_type = parts[sector_csvCol - 1], parts[layer_csvCol - 1], parts[square_csvCol - 1], parts[soil_csvCol - 1]
                 square_name = square_name.replace("/", "").upper().strip()  # Normalize square name
                 
                 conn = sqlite3.connect('grid_data.db')
