@@ -291,6 +291,38 @@ class GridAnnotator:
         # after(time_ms, callback_f()) - start new timer, triggered after time passed
         self.resize_job = self.master.after(100, lambda: self.update_scaled_image(fast=False))
 
+    def get_multiletter_index(self, label, alphabet) -> int:
+        base = len(alphabet)
+        index = 0
+        for char in label:
+            # Calculate the index in a base-N numeral system, where N is the length of the alphabet
+            index = index * base + alphabet.index(char) + 1
+        return index -1
+
+    def multiletter_label(self, start_letter, end_letter) -> list[str]:
+        # self - обязательный 1й параметр метода класса, но может не использоваться в теле метода
+
+        # Весь алфавит, кроме букв Ё и Й (словарь индексов)
+        letters_raw = [chr(i) for i in range(ord("А"), ord("Я") + 1) if chr(i) not in ("Ё", "Й", "Ъ", "Ь", "Ы", "Щ")]
+        base = len(letters_raw)
+
+        # Получаем индексы начальной и конечной буквы
+        start_index = self.get_multiletter_index(start_letter, letters_raw)
+        end_index = self.get_multiletter_index(end_letter, letters_raw)
+
+        letters = []
+        # Генерируем все комбинации букв в указанном диапазоне
+        for i in range(start_index, end_index + 1):
+            n = i
+            label = ""
+            while n>= 0:
+                # Аналогично Excel, буквы идут в алфавитном порядке, но после Я идет AA, AБ и т.д.
+                label = letters_raw[n % base] + label
+                n = n // base - 1
+            letters.append(label)
+
+        return letters
+
     # ------------------------------------------------------------
     # Калибровка сетки
     # ------------------------------------------------------------
@@ -300,10 +332,7 @@ class GridAnnotator:
         numbers_range = simpledialog.askstring("Диапазон цифр", "Введите диапазон цифр (например 1-20):")
 
         start_letter, end_letter = letters_range.split("-")
-        letters_raw = [chr(i) for i in range(ord(start_letter), ord(end_letter) + 1)]
-
-        # Исключаем буквы Ё и Й
-        self.letters = [L for L in letters_raw if L not in ("Ё", "Й")]
+        self.letters = self.multiletter_label(start_letter, end_letter)
 
         start_num, end_num = numbers_range.split("-")
         self.numbers = list(range(int(start_num), int(end_num) + 1))
@@ -376,14 +405,12 @@ class GridAnnotator:
                 row = row.strip()
                 if not row:
                     continue
+                
                 parts = row.split(';')
                 if len(parts) < 4:
                     continue
+                
                 sector, layer, square_name, soil_type = parts[0], parts[1], parts[2], parts[3]
-                #print(repr(square_name))
-                #square_name = square_name.strip()        # убрать пробелы
-                #square_name = square_name.replace("／", "/")  # заменить fullwidth slash на обычный
-                #square_name = square_name.upper()        # привести к верхнему регистру
                 square_name = square_name.replace("/", "").upper().strip()  # Normalize square name
                 
                 conn = sqlite3.connect('grid_data.db')
@@ -397,7 +424,7 @@ class GridAnnotator:
 
                 conn.close()
 
-        messagebox.showinfo("Проверка описи", "Выполнена проверка описи.")
+        messagebox.showinfo("Верификатор керамических описей", "Проверка описи завершена.")
     
 
 # ------------------------------------------------------------
