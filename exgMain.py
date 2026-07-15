@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from PIL import Image, ImageTk
-import json, sqlite3, os
+import json, sqlite3, os, re
 
 class GridAnnotator:
 
@@ -12,14 +12,14 @@ class GridAnnotator:
         cursor.execute('''CREATE TABLE IF NOT EXISTS grid_data (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             sector INTEGER,
-                            layer TEXT,
+                            layer INTEGER,
                             square TEXT,
                             soil_type TEXT
                         )''')
         conn.commit()
 
         self.master = master
-        self.master.title("Оцифровка чертежа — Canvas")
+        self.master.title("Верификатор керамических описей")
         
         self.handle1 = None
         self.handle2 = None
@@ -49,7 +49,7 @@ class GridAnnotator:
         # timer refrecnce for detecting window resize
         self.resize_job = None
 
-        self.letters = ["A"]
+        self.letters = ["А"]
         self.numbers = ["1"]
         self.grid_data = {}
         
@@ -59,11 +59,25 @@ class GridAnnotator:
         
         # Создаём панель управления
         toolbar = ttk.Frame(self.master)        
-        ttk.Button(toolbar, text="Загрузить чертеж", command=self.load_image).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Открыть чертеж", command=self.load_image).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Задать размер сетки", command=self.start_calibration).pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        ttk.Label(toolbar, text="Выберите слой:").pack(side=tk.LEFT, padx=2)
-        self.soil_combo = ttk.Combobox(toolbar, values=[
+        ttk.Button(toolbar, text="Сохранить сетку + слои", command=self.save_db).pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        ttk.Button(toolbar, text="ПРОВЕРИТЬ ОПИСЬ", command=self.check_sys).pack(side=tk.LEFT, padx=2)
+        toolbar.pack(side=tk.TOP, fill=tk.X)
+
+        toolbar2 = ttk.Frame(self.master)
+        ttk.Label(toolbar2, text="Сектор:").pack(side=tk.LEFT, padx=2)
+        self.sector_spinbox = ttk.Spinbox(toolbar2, from_=1, to=7, width=10)
+        self.sector_spinbox.pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        ttk.Label(toolbar2, text="Пласт:").pack(side=tk.LEFT, padx=2)
+        self.layer_spinbox = ttk.Spinbox(toolbar2, from_=1, to=12, width=10)
+        self.layer_spinbox.pack(side=tk.LEFT, padx=2)
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
+        ttk.Label(toolbar2, text="Выберите слой:").pack(side=tk.LEFT, padx=2)
+        self.soil_combo = ttk.Combobox(toolbar2, values=[
             "Балласт",
             "СКС + БПК",
             "СПП + СС",
@@ -71,18 +85,7 @@ class GridAnnotator:
             "УМП"
         ])
         self.soil_combo.pack(side=tk.LEFT, padx=2)
-        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        ttk.Label(toolbar, text="Сектор:").pack(side=tk.LEFT, padx=2)
-        self.sector_spinbox = ttk.Spinbox(toolbar, from_=1, to=7, width=5)
-        self.sector_spinbox.pack(side=tk.LEFT, padx=2)
-        ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        ttk.Label(toolbar, text="Пласт:").pack(side=tk.LEFT, padx=2)
-        self.layer_spinbox = ttk.Spinbox(toolbar, from_=1, to=12, width=5)
-        self.layer_spinbox.pack(side=tk.LEFT, padx=2)
-        ttk.Separator(self.master, orient=tk.HORIZONTAL).pack(side=tk.TOP, fill=tk.X)
-        ttk.Button(toolbar, text="Сохранить", command=self.save_db).pack(side=tk.RIGHT, padx=2)
-        ttk.Button(toolbar, text="ПРОВЕРИТЬ ОПИСЬ", command=self.check_sys).pack(side=tk.RIGHT, padx=2)
-        toolbar.pack(side=tk.TOP, fill=tk.X)
+        toolbar2.pack(side=tk.TOP, fill=tk.X)
               
         # Canvas для чертежа
         self.canvas = tk.Canvas(master, bg="gray")
@@ -207,7 +210,7 @@ class GridAnnotator:
                         tags=("grid", qIndex)
                     )
                     self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
-                        text=f"{letter}{number}", fill="blue", 
+                        text=qIndex, fill="blue", font=("Arial", 10, "bold"),
                         tags=("letter", qIndex)
                     )
                 
@@ -323,8 +326,9 @@ class GridAnnotator:
             if event.num == 1:
                 print(f"Вы выбрали квадрат: {square_name}")
                 soil_type = self.soil_combo.get()
-                x1, y1, _, _ = self.canvas.coords(self.handle1)
-                self.canvas.create_text(x1+5, y1 + (len(tags)-1)*13, text=soil_type, fill="black", anchor="nw", tags="info")
+                x1, y1, _, _ = self.canvas.coords(current[0])
+                self.canvas.create_text(x1+5, y1 + (len(tags)-1)*13, text=soil_type, 
+                                        fill="green", anchor="nw", tags="info", font=("Arial", 8, "bold"))
                 self.canvas.addtag_withtag(soil_type, square_name)
                 print(self.canvas.gettags(current[0]))
                 print(self.canvas.coords(current[0]))
@@ -345,9 +349,10 @@ class GridAnnotator:
             if len(tags) > 1:
                 square_name = tags[1]
                 soil_type = ""
+                print("square:", square_name)
                 for tag in tags[2:]:
                     if tag not in self.letters and tag not in map(str, self.numbers):
-                        soil_type += tag + " | "
+                        soil_type += tag + "|"
                 if soil_type:
                     sector = int(self.sector_spinbox.get())  
                     layer = int(self.layer_spinbox.get())   
@@ -367,23 +372,30 @@ class GridAnnotator:
         
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            for row in lines:
+            for i, row in enumerate(lines):
                 row = row.strip()
                 if not row:
                     continue
-                parts = row.split(',')
-                if len(parts) < 3:
+                parts = row.split(';')
+                if len(parts) < 4:
                     continue
-                sector, layer, square_name = parts[0], parts[1], parts[2]
-                square_name = square_name.replace("/", "").upper()  # Normalize square name
+                sector, layer, square_name, soil_type = parts[0], parts[1], parts[2], parts[3]
+                #print(repr(square_name))
+                #square_name = square_name.strip()        # убрать пробелы
+                #square_name = square_name.replace("／", "/")  # заменить fullwidth slash на обычный
+                #square_name = square_name.upper()        # привести к верхнему регистру
+                square_name = square_name.replace("/", "").upper().strip()  # Normalize square name
+                
                 conn = sqlite3.connect('grid_data.db')
+                
                 cursor = conn.cursor()
-                cursor.execute('SELECT * FROM grid_data WHERE sector=? AND layer=? AND square=?', (sector, layer, square_name))
+                cursor.execute(f'SELECT * FROM grid_data WHERE sector={sector} AND layer={layer} AND square="{square_name}" AND soil_type LIKE "%{soil_type}%"')
                 result = cursor.fetchone()
-                conn.close()
                 if not result:
-                    messagebox.showwarning("Проверка описи", f"Квадрат {square_name} в секторе {sector}, пласт {layer} не найден в базе данных.")
-                    return
+                    messagebox.showwarning("Найдена ошибка!", f"Строка {i}\nКвадрат {square_name}, сектор {sector}, пласт {layer}\nс слоем {soil_type}.")
+                cursor.close()
+
+                conn.close()
 
         messagebox.showinfo("Проверка описи", "Выполнена проверка описи.")
     
