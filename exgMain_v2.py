@@ -16,10 +16,15 @@ class GridAnnotator:
                             square TEXT,
                             soil_type TEXT
                         )''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS grid_props (id INTEGER PRIMARY KEY, 
+                       sector INTEGER, layer INTEGER, 
+                       cell_width REAL, cell_height REAL, 
+                       grid_left REAL, grid_top REAL, deleted TEXT,
+                       letters TEXT, numbers TEXT)''')
         conn.commit()
 
         self.master = master
-        self.master.title("Верификатор керамических описей")
+        self.master.title("Верификатор керамических описей 2")
         
         self.handle1 = None
         self.handle2 = None
@@ -48,6 +53,8 @@ class GridAnnotator:
         
         # timer refrecnce for detecting window resize
         self.resize_job = None
+
+        self.db_loaded = False
 
         self.letters = ["А"]
         self.numbers = ["1"]
@@ -169,12 +176,13 @@ class GridAnnotator:
         )
 
         # Перестраиваем сетку в реальном времени
-        self.update_grid_preview()
+        self.update_grid_preview(with_db=self.db_loaded)
 
     def on_handle_release(self, event):
+        print("Handle released at coordinates:", event.x, event.y)
         self.dragging_handle = None
         
-    def update_grid_preview(self):
+    def update_grid_preview(self, with_db=False):
         # Получаем координаты хендлеров
         x1, y1, _, _ = self.canvas.coords(self.handle1)
         x2, y2, _, _ = self.canvas.coords(self.handle2)
@@ -190,31 +198,68 @@ class GridAnnotator:
         # Удаляем старую сетку
         self.canvas.delete("grid")
         self.canvas.delete("letter")
+        self.canvas.delete("info")
+
+        print(self.letters, self.numbers)
+        print("Grid left:", self.grid_left, "Grid top:", self.grid_top, "Cell width:", self.cell_w, "Cell height:", self.cell_h)
 
         # Строим новую сетку
         for i, letter in enumerate(self.letters):
             for j, number in enumerate(self.numbers):
+
                 cx1 = self.grid_left + i * self.cell_w
                 cy1 = self.grid_top + j * self.cell_h
                 cx2 = cx1 + self.cell_w
                 cy2 = cy1 + self.cell_h
 
+                #print(f"Drawing cell {letter}{number} at ({cx1}, {cy1}) to ({cx2}, {cy2})")
+
                 qIndex = f"{letter}{number}"
                 
-                if qIndex not in self.deleted:
-                    # allowed stipple: 12,25,50,75
-                    self.canvas.create_rectangle(
-                        cx1, cy1, cx2, cy2,
-                        outline="red", width=1, 
-                        fill="red", stipple="gray12",
-                        tags=("grid", qIndex)
-                    )
-                    self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
-                        text=qIndex, fill="blue", font=("Arial", 10, "bold"),
-                        tags=("letter", qIndex)
-                    )
+                
+                if with_db:
+                    conn = sqlite3.connect('grid_data.db')
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT square, soil_type FROM grid_data WHERE sector=? AND layer=? AND square=?',
+                                       (int(self.sector_spinbox.get()), int(self.layer_spinbox.get()), qIndex))
+                    result = cursor.fetchone()
+                    if result:
+                        self.canvas.create_rectangle(
+                                cx1, cy1, cx2, cy2,
+                                outline="red", width=1, 
+                                fill="red", stipple="gray12",
+                                tags=("grid", qIndex)
+                        )
+                        self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
+                                text=qIndex, fill="blue", font=("Arial", 10, "bold"),
+                                tags=("letter", qIndex)
+                        )
+                        soil_types = result[1].split("|")  # Get the first soil type if multiple
+                        for i, soil_type in enumerate(soil_types):
+                            self.canvas.create_text(cx1 + 5, cy1 + (i+1)*15, anchor="nw", 
+                                text=soil_type, fill="green", font=("Arial", 8, "bold"),
+                                tags=("info", qIndex)
+                            )
+                            self.canvas.addtag_withtag(soil_type, qIndex)
+                        cursor.close()
+                else:
+                    if qIndex not in self.deleted:
+                            # allowed stipple: 12,25,50,75
+                        self.canvas.create_rectangle(
+                                cx1, cy1, cx2, cy2,
+                                outline="red", width=1, 
+                                fill="red", stipple="gray12",
+                                tags=("grid", qIndex)
+                        )
+                        self.canvas.create_text(cx1 + 5, cy1 + 5, anchor="nw", 
+                                text=qIndex, fill="blue", font=("Arial", 10, "bold"),
+                                tags=("letter", qIndex)
+                        )
+                    
                 
         self.rise_handeler_to_top()
+
+        print("Cell size:", self.cell_w, self.cell_h)
                 
         # Bind onMouseClick event (all mouse buttons)
         self.canvas.tag_bind("grid", "<Button>", self.on_click)
@@ -241,6 +286,20 @@ class GridAnnotator:
 
         self.image = Image.open(file_path)
         self.update_scaled_image()
+
+        conn = sqlite3.connect('grid_data.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM grid_props WHERE sector=? AND layer=?', (user_sector, user_layer))
+        row = cursor.fetchone()
+        if row:
+            if tk.messagebox.askokcancel("Загрузка сетки", "Сетка для этого сектора и пласта уже существует. Хотите загрузить её?"):
+                #self.canvas.coords(self.handle1, row[5], row[6], row[5] + self.handle_size, row[6] + self.handle_size)
+                #self.canvas.coords(self.handle2, row[5]+row[3], row[6]+row[4], row[5]+row[3] + self.handle_size, row[6]+row[4] + self.handle_size)
+                self.deleted = set(self.deleted.split(',')) if self.deleted else set()
+                self.calibrate_from_ranges(row[8], row[9], wdb=True)
+                self.db_loaded = True
+        cursor.close()
+
 
     # ------------------------------------------------------------
     # Масштабирование изображения под окно
@@ -328,6 +387,17 @@ class GridAnnotator:
 
         return letters
 
+
+    def calibrate_from_ranges(self, letters_range, numbers_range, wdb=False):
+
+        start_letter, end_letter = letters_range.split("-")
+        self.letters = self.multiletter_label(start_letter, end_letter)
+
+        start_num, end_num = numbers_range.split("-")
+        self.numbers = list(range(int(start_num), int(end_num) + 1))
+        
+        self.update_grid_preview(with_db=wdb)
+
     # ------------------------------------------------------------
     # Калибровка сетки
     # ------------------------------------------------------------
@@ -336,13 +406,9 @@ class GridAnnotator:
         letters_range = simpledialog.askstring("Диапазон букв", "Введите диапазон букв (например A-H):")
         numbers_range = simpledialog.askstring("Диапазон цифр", "Введите диапазон цифр (например 1-20):")
 
-        start_letter, end_letter = letters_range.split("-")
-        self.letters = self.multiletter_label(start_letter, end_letter)
-
-        start_num, end_num = numbers_range.split("-")
-        self.numbers = list(range(int(start_num), int(end_num) + 1))
-        
-        self.update_grid_preview()
+        if letters_range and numbers_range:
+            self.calibrate_from_ranges(letters_range, numbers_range)
+            #messagebox.showinfo("Калибровка сетки", "Сетка успешно откалибрована.")
 
     # ------------------------------------------------------------
     # Обработка кликов
@@ -379,6 +445,8 @@ class GridAnnotator:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM grid_data WHERE sector=? AND layer=?', (int(self.sector_spinbox.get()), int(self.layer_spinbox.get())))
         conn.commit()
+        cursor.execute('DELETE FROM grid_props WHERE sector=? AND layer=?', (int(self.sector_spinbox.get()), int(self.layer_spinbox.get())))
+        conn.commit()   
         cursor.close()
 
         real_grid = self.canvas.find_withtag("grid")
@@ -403,6 +471,12 @@ class GridAnnotator:
                     conn.commit()
                     cursor.close()
         
+        cursor = conn.cursor()
+        cursor.execute('''INSERT OR REPLACE INTO grid_props (sector, layer, cell_width, cell_height, grid_left, grid_top, deleted, letters, numbers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (int(self.sector_spinbox.get()), int(self.layer_spinbox.get()), 
+                        self.cell_w, self.cell_h, 
+                        self.grid_left, self.grid_top, 
+                        ','.join(self.deleted), self.letters, self.numbers))
         conn.close()
         messagebox.showinfo("Сохранение в БД", "Выполнено сохранение данных в базу данных.")
 
