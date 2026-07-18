@@ -61,8 +61,9 @@ class GridAnnotator:
         toolbar = ttk.Frame(self.master)        
         ttk.Button(toolbar, text="Открыть чертеж", command=self.load_image).pack(side=tk.LEFT, padx=2)
         ttk.Button(toolbar, text="Задать размер сетки", command=self.start_calibration).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Очистить", command=self.clear_canvas).pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        ttk.Button(toolbar, text="Сохранить сетку + слои", command=self.save_db).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="Сохранить сетку-слои", command=self.save_db).pack(side=tk.LEFT, padx=2)
         ttk.Separator(toolbar, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=5)
         ttk.Button(toolbar, text="ПРОВЕРИТЬ ОПИСЬ", command=self.check_sys).pack(side=tk.LEFT, padx=2)
         toolbar.pack(side=tk.TOP, fill=tk.X)
@@ -79,10 +80,9 @@ class GridAnnotator:
         ttk.Label(toolbar2, text="Выберите слой:").pack(side=tk.LEFT, padx=2)
         self.soil_combo = ttk.Combobox(toolbar2, values=[
             "Балласт",
-            "СКС + БПК",
             "СПП + СС",
+            "СКС + БПК",
             "СТСС + БКУ и КЖ",
-            "УМП"
         ])
         self.soil_combo.pack(side=tk.LEFT, padx=2)
         toolbar2.pack(side=tk.TOP, fill=tk.X)
@@ -101,6 +101,17 @@ class GridAnnotator:
         
         
         self.create_handles()
+
+    def clear_canvas(self):
+        self.canvas.delete("grid")
+        self.canvas.delete("letter")
+        self.canvas.delete("info")
+        self.deleted.clear()
+        self.letters = ["А"]
+        self.numbers = ["1"]
+        self.update_grid_preview()
+        self.image = None
+        self.photo = None
 
     def create_handles(self):
         
@@ -135,9 +146,9 @@ class GridAnnotator:
         self.handle2 = self.canvas.create_rectangle(
             cx + size, cy + size,
             cx + size + self.handle_size, cy + size + self.handle_size,
-            fill="yellow", outline="black", tags="handle2"
+            fill="orange", outline="black", tags="handle2"
         )
-        
+
         self.canvas.tag_bind("handle1", "<ButtonPress-1>", self.on_handle_press)
         self.canvas.tag_bind("handle1", "<B1-Motion>", self.on_handle_drag)
         self.canvas.tag_bind("handle1", "<ButtonRelease-1>", self.on_handle_release)
@@ -190,6 +201,7 @@ class GridAnnotator:
         # Удаляем старую сетку
         self.canvas.delete("grid")
         self.canvas.delete("letter")
+        self.canvas.delete("info")
 
         # Строим новую сетку
         for i, letter in enumerate(self.letters):
@@ -336,6 +348,8 @@ class GridAnnotator:
         letters_range = simpledialog.askstring("Диапазон букв", "Введите диапазон букв (например A-H):")
         numbers_range = simpledialog.askstring("Диапазон цифр", "Введите диапазон цифр (например 1-20):")
 
+        self.deleted.clear()
+
         start_letter, end_letter = letters_range.split("-")
         self.letters = self.multiletter_label(start_letter, end_letter)
 
@@ -358,12 +372,16 @@ class GridAnnotator:
             square_name = tags[1]
             # Event num: 1 - left click, 2 - middle click, 3 - right click
             if event.num == 1:
+
                 print(f"Вы выбрали квадрат: {square_name}")
                 soil_type = self.soil_combo.get()
-                x1, y1, _, _ = self.canvas.coords(current[0])
-                self.canvas.create_text(x1+5, y1 + (len(tags)-1)*13, text=soil_type, 
-                                        fill="green", anchor="nw", tags="info", font=("Arial", 8, "bold"))
-                self.canvas.addtag_withtag(soil_type, square_name)
+
+                if soil_type not in self.canvas.gettags(current[0]):
+                    x1, y1, _, _ = self.canvas.coords(current[0])
+                    self.canvas.create_text(x1+5, y1 + (len(tags)-1)*13, text=soil_type, 
+                                        fill="green", anchor="nw", tags=("info",square_name), font=("Arial", 8, "bold"))
+                    self.canvas.addtag_withtag(soil_type, square_name)
+
                 print(self.canvas.gettags(current[0]))
                 print(self.canvas.coords(current[0]))
             if event.num == 3:
@@ -413,6 +431,11 @@ class GridAnnotator:
         if not file_path:
             return
         
+        sector_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Сектор'", initialvalue=1)
+        layer_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Пласт'", initialvalue=3)
+        square_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Квадрат'", initialvalue=4)
+        soil_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Слой'", initialvalue=2)
+
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
             for i, row in enumerate(lines):
@@ -423,25 +446,24 @@ class GridAnnotator:
                 parts = row.split(';')
                 if len(parts) < 4:
                     continue
-                
-                sector_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Сектор'", initialvalue=1)
-                layer_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Пласт'", initialvalue=2)
-                square_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Квадрат'", initialvalue=3)
-                soil_csvCol = simpledialog.askinteger("Подготовка к проверке", "Укажите номер колонки 'Слой'", initialvalue=4)
 
                 sector, layer, square_name, soil_type = parts[sector_csvCol - 1], parts[layer_csvCol - 1], parts[square_csvCol - 1], parts[soil_csvCol - 1]
-                square_name = square_name.replace("/", "").upper().strip()  # Normalize square name
-                
-                conn = sqlite3.connect('grid_data.db')
-                
-                cursor = conn.cursor()
-                cursor.execute(f'SELECT * FROM grid_data WHERE sector={sector} AND layer={layer} AND square="{square_name}" AND soil_type LIKE "%{soil_type}%"')
-                result = cursor.fetchone()
-                if not result:
-                    messagebox.showwarning("Найдена ошибка!", f"Строка {i}\nКвадрат {square_name}, сектор {sector}, пласт {layer}\nс слоем {soil_type}.")
-                cursor.close()
 
-                conn.close()
+                if sector != "" and layer!="" and square_name!="" and soil_type!="":
+                    square_name = square_name.replace("/", "").upper().strip()  # Normalize square name
+                
+                    conn = sqlite3.connect('grid_data.db')
+                
+                    cursor = conn.cursor()
+                    rq = f'SELECT * FROM grid_data WHERE sector={int(sector)} AND layer={int(layer)} AND square="{square_name}" AND (soil_type LIKE "%{soil_type}%" OR soil_type LIKE "{soil_type}%" OR soil_type LIKE "%{soil_type}")'
+                    print(rq)
+                    cursor.execute(rq)
+                    result = cursor.fetchone()
+                    if not result:
+                        messagebox.showwarning("Найдена ошибка!", f"Строка {i}\nКвадрат {square_name}, сектор {sector}, пласт {layer}\nс слоем {soil_type}.")
+                    cursor.close()
+
+                    conn.close()
 
         messagebox.showinfo("Верификатор керамических описей", "Проверка описи завершена.")
     
