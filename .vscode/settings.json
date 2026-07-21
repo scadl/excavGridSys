@@ -8,5 +8,7 @@
             "database": "${workspaceFolder:excavGridSys}/grid_data.db",
             "name": "db"
         }
-    ]
+    ],
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "standard"
 }
